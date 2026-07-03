@@ -1,0 +1,55 @@
+{
+  "name": "staff-wise-agent",
+  "version": "0.1.0",
+  "description": "Staff Wise time & activity agent",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist": "electron-builder -mw"
+  },
+  "author": "mikatot",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^42.5.1",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "active-win": "^8.2.1"
+  },
+  "build": {
+    "appId": "com.staffwise.agent",
+    "productName": "Staff Wise Agent",
+    "files": [
+      "main.js",
+      "preload.js",
+      "browser-url.js",
+      "renderer/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/active-win/**"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity",
+      "identity": null
+    },
+    "dmg": {
+      "artifactName": "StaffWiseAgent-mac.${ext}"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "artifactName": "StaffWiseAgent-setup.${ext}"
+    }
+  }
+}
