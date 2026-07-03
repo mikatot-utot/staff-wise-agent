@@ -1,6 +1,6 @@
 {
   "name": "staff-wise-agent",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Staff Wise time & activity agent",
   "main": "main.js",
   "scripts": {
@@ -22,6 +22,7 @@
     "appId": "com.staffwise.agent",
     "productName": "Staff Wise Agent",
     "npmRebuild": false,
+    "afterPack": "build/afterPack.js",
     "files": [
       "main.js",
       "preload.js",
