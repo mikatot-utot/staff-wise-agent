@@ -17,11 +17,22 @@ $("loginBtn").addEventListener("click", async () => {
 });
 
 $("trackBtn").addEventListener("click", () => {
-  if ($("trackBtn").dataset.tracking === "1") window.biukin.stopTracking();
-  else window.biukin.startTracking();
+  const btn = $("trackBtn");
+  btn.disabled = true;
+  const p = btn.dataset.on === "1" ? window.biukin.clockOut() : window.biukin.clockIn();
+  Promise.resolve(p).then((r) => {
+    btn.disabled = false;
+    if (r && r.error) $("statusLine").textContent = r.error;
+  });
 });
 $("logoutBtn").addEventListener("click", () => window.biukin.logout());
 $("quitBtn").addEventListener("click", () => window.biukin.quitApp());
+
+function fmtSince(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
 
 window.biukin.onStatus((s) => {
   const loggedIn = s.signedIn;
@@ -29,22 +40,24 @@ window.biukin.onStatus((s) => {
   $("trackingView").classList.toggle("hide", !loggedIn);
   if (!loggedIn) return;
 
-  const tracking = !!s.tracking;
+  const on = !!s.clockedIn;
   const name = s.employee ? s.employee.short_name : "You";
-  $("who").textContent = tracking ? `${name} — tracking` : `${name} — paused`;
-  const active = tracking && (s.status || "").startsWith("Active");
-  $("dot").style.background = tracking ? (active ? "#10b981" : "#f59e0b") : "#6b6b70";
+  $("who").textContent = on
+    ? `${name} — on the clock${s.since ? " · since " + fmtSince(s.since) : ""}`
+    : `${name} — clocked out`;
+  const active = on && (s.status || "").startsWith("Active");
+  $("dot").style.background = on ? (active ? "#10b981" : "#f59e0b") : "#6b6b70";
   $("statusLine").textContent = s.status || "";
   $("pending").textContent = s.pending
     ? `${s.pending} reading(s) queued to upload`
-    : tracking
+    : on
       ? "All readings uploaded"
       : "";
   $("server").textContent = `Server: ${s.apiBase}`;
 
-  // Start/Stop toggle
+  // Clock in / out toggle
   const btn = $("trackBtn");
-  btn.dataset.tracking = tracking ? "1" : "0";
-  btn.textContent = tracking ? "■ Stop tracking" : "▶ Start tracking";
-  btn.classList.toggle("secondary", tracking);
+  btn.dataset.on = on ? "1" : "0";
+  btn.textContent = on ? "Clock out" : "Clock in";
+  btn.classList.toggle("secondary", on);
 });

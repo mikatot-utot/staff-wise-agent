@@ -22,6 +22,7 @@ let buffer = [];
 let sampleTimer = null;
 let quitting = false;
 let lastStatus = "Signed out";
+let clockedInSince = null;
 
 const sessionFile = () => path.join(app.getPath("userData"), "session.json");
 
@@ -51,7 +52,8 @@ function updateUI() {
   send("status", {
     signedIn: !!token,
     employee,
-    tracking: !!sampleTimer,
+    clockedIn: !!sampleTimer,
+    since: clockedInSince,
     status: lastStatus,
     pending: buffer.length,
     apiBase: API_BASE,
@@ -178,26 +180,66 @@ ipcMain.handle("login", async (_e, { email, password }) => {
     token = data.token;
     employee = data.employee;
     saveSession();
-    lastStatus = "Ready — press Start to begin your shift";
+    lastStatus = "Ready — clock in to start your shift";
     updateUI();
+    refreshClockStatus(); // resume if already clocked in (e.g. from the web)
     return { ok: true };
   } catch {
     return { error: "Can't reach server at " + API_BASE };
   }
 });
 
-ipcMain.handle("startTracking", async () => {
+async function clockApi(action) {
+  const res = await fetch(API_BASE + "/api/agent/clock", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + token,
+    },
+    body: JSON.stringify({ action }),
+  });
+  return res.ok ? res.json() : Promise.reject(new Error("clock " + res.status));
+}
+
+/** Reflect the server's clock state (e.g. clocked in from the web) into the agent. */
+async function refreshClockStatus() {
+  if (!token) return;
+  try {
+    const data = await clockApi("status");
+    clockedInSince = data.since;
+    if (data.clockedIn && !sampleTimer) startSampling();
+    if (!data.clockedIn && sampleTimer) stopSampling();
+    if (!data.clockedIn) lastStatus = "Ready — clock in to start your shift";
+    updateUI();
+  } catch {
+    /* offline — leave as-is */
+  }
+}
+
+ipcMain.handle("clockIn", async () => {
   if (!token) return { error: "Not signed in" };
-  startSampling();
-  lastStatus = "Starting…";
-  updateUI();
-  return { ok: true };
+  try {
+    const data = await clockApi("in");
+    clockedInSince = data.since;
+    startSampling();
+    lastStatus = "Starting…";
+    updateUI();
+    return { ok: true };
+  } catch {
+    return { error: "Can't reach server — try again" };
+  }
 });
 
-ipcMain.handle("stopTracking", async () => {
+ipcMain.handle("clockOut", async () => {
   stopSampling();
   await flush().catch(() => {});
-  lastStatus = "Paused — not tracking";
+  try {
+    await clockApi("out");
+  } catch {
+    /* still stop locally even if offline */
+  }
+  clockedInSince = null;
+  lastStatus = "Clocked out";
   updateUI();
   return { ok: true };
 });
@@ -223,7 +265,10 @@ ipcMain.handle("quitApp", async () => {
 app.whenReady().then(() => {
   loadSession();
   createWindow();
-  if (token) lastStatus = "Ready — press Start to begin your shift";
+  if (token) {
+    lastStatus = "Ready — clock in to start your shift";
+    refreshClockStatus();
+  }
 
   app.on("activate", () => {
     if (win) win.show();
