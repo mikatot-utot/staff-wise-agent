@@ -13,7 +13,7 @@ const API_BASE = process.env.BIUKIN_API || "https://staff-wise-theta.vercel.app"
 
 const SAMPLE_INTERVAL_MS = 60_000; // take a reading every 60s
 const IDLE_THRESHOLD_S = 60; // idle if no keyboard/mouse for 60s
-const FLUSH_EVERY = 3; // upload after every 3 samples (~3 min)
+const FLUSH_EVERY = 1; // upload after every sample (~1 min) so the dashboard is near-live
 
 let win = null;
 let token = null;
