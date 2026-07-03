@@ -3,27 +3,39 @@
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'" />
-    <title>Biukin Agent</title>
+    <title>Staff Wise Agent</title>
     <style>
       * { box-sizing: border-box; font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
-      body { margin: 0; padding: 24px; background: #f6f7f9; color: #1a1d21; }
-      h1 { font-size: 18px; margin: 0 0 4px; color: #0e7490; }
-      .sub { font-size: 12px; color: #6b7280; margin-bottom: 20px; }
-      label { display: block; font-size: 12px; color: #6b7280; margin: 12px 0 4px; }
-      input { width: 100%; padding: 9px 10px; border: 1px solid #e3e6ea; border-radius: 8px; font-size: 14px; }
-      button { width: 100%; margin-top: 16px; padding: 10px; border: 0; border-radius: 8px; background: #0e7490; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
-      button.secondary { background: #fff; color: #1a1d21; border: 1px solid #e3e6ea; font-weight: 500; }
-      .err { color: #dc2626; font-size: 13px; margin-top: 10px; min-height: 16px; }
-      .card { background: #fff; border: 1px solid #e3e6ea; border-radius: 12px; padding: 16px; }
+      body { margin: 0; padding: 24px; background: #07070a; color: #f3f4f6; }
+      h1 { font-size: 18px; margin: 0 0 4px; font-weight: 700; letter-spacing: -0.01em; }
+      h1 .mark { color: #b6f09c; }
+      .sub { font-size: 12px; color: #8a8a90; margin-bottom: 20px; }
+      label { display: block; font-size: 12px; color: #8a8a90; margin: 12px 0 4px; }
+      input {
+        width: 100%; padding: 9px 10px; border: 1px solid #232326; border-radius: 8px;
+        font-size: 14px; background: #0f0f12; color: #f3f4f6;
+      }
+      input::placeholder { color: #5d5d63; }
+      button {
+        width: 100%; margin-top: 16px; padding: 10px; border: 0; border-radius: 8px;
+        background: #ea580c; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+      }
+      button:hover { opacity: 0.92; }
+      button.secondary { background: transparent; color: #f3f4f6; border: 1px solid #232326; font-weight: 500; }
+      button.secondary:hover { background: #1c1c20; opacity: 1; }
+      .err { color: #f87171; font-size: 13px; margin-top: 10px; min-height: 16px; }
+      .card { background: #141416; border: 1px solid #232326; border-radius: 14px; padding: 16px; }
       .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
       .row { display: flex; align-items: center; font-size: 14px; margin-bottom: 8px; }
-      .muted { color: #6b7280; font-size: 12px; }
+      .muted { color: #8a8a90; font-size: 12px; }
+      .foot { color: #6b6b70; font-size: 11px; margin-top: 16px; text-align: center; }
+      .foot .mark { color: #b6f09c; font-weight: 600; }
       .hide { display: none; }
     </style>
   </head>
   <body>
-    <h1>Biukin Agent</h1>
-    <div class="sub">Tracks your work time and activity.</div>
+    <h1><span class="mark">◣</span> Staff Wise Agent</h1>
+    <div class="sub">Tracks your work time and activity while you&rsquo;re on shift.</div>
 
     <div id="loginView">
       <div class="card">
@@ -47,6 +59,8 @@
         <button class="secondary" id="quitBtn" style="margin-top:8px">Stop &amp; quit</button>
       </div>
     </div>
+
+    <div class="foot">Powered by <span class="mark">mikatot</span></div>
 
     <script src="renderer.js"></script>
   </body>

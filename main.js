@@ -153,7 +153,7 @@ function createWindow() {
     width: 380,
     height: 460,
     resizable: false,
-    title: "Biukin Agent",
+    title: "Staff Wise Agent",
     webPreferences: { preload: path.join(__dirname, "preload.js") },
   });
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
