@@ -178,13 +178,28 @@ ipcMain.handle("login", async (_e, { email, password }) => {
     token = data.token;
     employee = data.employee;
     saveSession();
-    startSampling();
-    lastStatus = "Starting…";
+    lastStatus = "Ready — press Start to begin your shift";
     updateUI();
     return { ok: true };
   } catch {
     return { error: "Can't reach server at " + API_BASE };
   }
+});
+
+ipcMain.handle("startTracking", async () => {
+  if (!token) return { error: "Not signed in" };
+  startSampling();
+  lastStatus = "Starting…";
+  updateUI();
+  return { ok: true };
+});
+
+ipcMain.handle("stopTracking", async () => {
+  stopSampling();
+  await flush().catch(() => {});
+  lastStatus = "Paused — not tracking";
+  updateUI();
+  return { ok: true };
 });
 
 ipcMain.handle("logout", async () => {
@@ -208,7 +223,7 @@ ipcMain.handle("quitApp", async () => {
 app.whenReady().then(() => {
   loadSession();
   createWindow();
-  if (token) startSampling();
+  if (token) lastStatus = "Ready — press Start to begin your shift";
 
   app.on("activate", () => {
     if (win) win.show();

@@ -1,6 +1,6 @@
 {
   "name": "staff-wise-agent",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Staff Wise time & activity agent",
   "main": "main.js",
   "scripts": {
