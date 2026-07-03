@@ -21,6 +21,7 @@
   "build": {
     "appId": "com.staffwise.agent",
     "productName": "Staff Wise Agent",
+    "npmRebuild": false,
     "files": [
       "main.js",
       "preload.js",
