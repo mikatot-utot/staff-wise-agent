@@ -16,10 +16,45 @@ $("loginBtn").addEventListener("click", async () => {
   if (res.error) $("err").textContent = res.error;
 });
 
+// Guard the in/out toggle two ways:
+// 1. Clocking OUT takes a second confirming click (5s window) — one stray
+//    click can no longer end tracking.
+// 2. After any punch the button stays locked until the next status update,
+//    plus a short cooldown — a double-click used to clock in AND right back
+//    out (the second click landed after the button had already toggled).
+let confirmingOut = false;
+let confirmTimer = null;
+let cooldown = false;
+
+function resetConfirm() {
+  confirmingOut = false;
+  if (confirmTimer) clearTimeout(confirmTimer);
+  confirmTimer = null;
+}
+
 $("trackBtn").addEventListener("click", () => {
   const btn = $("trackBtn");
+  if (btn.disabled || cooldown) return;
+
+  if (btn.dataset.on === "1" && !confirmingOut) {
+    // first click while clocked in → ask for confirmation
+    confirmingOut = true;
+    btn.textContent = "Click again to confirm clock out";
+    confirmTimer = setTimeout(() => {
+      resetConfirm();
+      btn.textContent = "Clock out";
+    }, 5000);
+    return;
+  }
+
+  const clockingOut = btn.dataset.on === "1";
+  resetConfirm();
   btn.disabled = true;
-  const p = btn.dataset.on === "1" ? window.biukin.clockOut() : window.biukin.clockIn();
+  cooldown = true;
+  setTimeout(() => {
+    cooldown = false;
+  }, 2500);
+  const p = clockingOut ? window.biukin.clockOut() : window.biukin.clockIn();
   Promise.resolve(p).then((r) => {
     btn.disabled = false;
     if (r && r.error) $("statusLine").textContent = r.error;
@@ -55,9 +90,13 @@ window.biukin.onStatus((s) => {
       : "";
   $("server").textContent = `Server: ${s.apiBase}`;
 
-  // Clock in / out toggle
+  // Clock in / out toggle (leave the label alone mid-confirmation)
   const btn = $("trackBtn");
+  const wasOn = btn.dataset.on;
   btn.dataset.on = on ? "1" : "0";
-  btn.textContent = on ? "Clock out" : "Clock in";
+  if (!confirmingOut || wasOn !== btn.dataset.on) {
+    resetConfirm();
+    btn.textContent = on ? "Clock out" : "Clock in";
+  }
   btn.classList.toggle("secondary", on);
 });

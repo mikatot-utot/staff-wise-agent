@@ -12,7 +12,7 @@ const { isBrowser, windowsBrowserUrl } = require("./browser-url");
 const API_BASE = process.env.BIUKIN_API || "https://staff-wise-theta.vercel.app";
 
 const SAMPLE_INTERVAL_MS = 60_000; // take a reading every 60s
-const IDLE_THRESHOLD_S = 60; // idle if no keyboard/mouse for 60s
+const IDLE_THRESHOLD_S = 540; // idle if no keyboard/mouse for 9 min
 const FLUSH_EVERY = 1; // upload after every sample (~1 min) so the dashboard is near-live
 
 let win = null;
@@ -103,13 +103,14 @@ async function takeSample() {
   if (!token) return;
   const idleSeconds = powerMonitor.getSystemIdleTime();
   const active = idleSeconds < IDLE_THRESHOLD_S;
-  const { app_name, domain } = active
-    ? await getActiveWindow()
-    : { app_name: null, domain: null };
+  // Always capture the foreground app/site — even while idle — so watching a
+  // video (no input) still shows WHERE the person is, not just "idle".
+  const { app_name, domain } = await getActiveWindow();
   buffer.push({ ts: new Date().toISOString(), active, app_name, domain });
+  const place = domain ? " · " + domain : app_name ? " · " + app_name : "";
   lastStatus = active
-    ? `Active${domain ? " · " + domain : app_name ? " · " + app_name : " (grant permissions for app/site names)"}`
-    : "Idle";
+    ? `Active${place || " (grant permissions for app/site names)"}`
+    : `Idle${place}`;
   if (buffer.length >= FLUSH_EVERY) await flush();
   updateUI();
 }
@@ -133,6 +134,8 @@ async function flush() {
       stopSampling();
       token = null;
       clearSession();
+      // tracking just silently stopped — make sure the person can see it
+      if (win) win.show();
     }
   } catch {
     // offline — keep buffering, retry next flush
@@ -189,6 +192,15 @@ ipcMain.handle("login", async (_e, { email, password }) => {
   }
 });
 
+/** Error whose .userMessage is safe to show as-is (server told us why). */
+class ClockError extends Error {
+  constructor(userMessage, status) {
+    super(userMessage);
+    this.userMessage = userMessage;
+    this.status = status;
+  }
+}
+
 async function clockApi(action) {
   const res = await fetch(API_BASE + "/api/agent/clock", {
     method: "POST",
@@ -198,7 +210,24 @@ async function clockApi(action) {
     },
     body: JSON.stringify({ action }),
   });
-  return res.ok ? res.json() : Promise.reject(new Error("clock " + res.status));
+  if (res.ok) return res.json();
+  // Surface the server's actual reason — a 409 ("Outside your shift window")
+  // is not a network problem, and telling people "can't reach server" sent
+  // them into pointless retries.
+  if (res.status === 401) {
+    token = null;
+    clearSession();
+    stopSampling();
+    lastStatus = "Session expired — sign in again";
+    updateUI();
+    if (win) win.show();
+    throw new ClockError("Session expired — sign in again", 401);
+  }
+  let msg = null;
+  try {
+    msg = (await res.json()).error || null;
+  } catch {}
+  throw new ClockError(msg || "Server error (" + res.status + ") — try again", res.status);
 }
 
 /** Reflect the server's clock state (e.g. clocked in from the web) into the agent. */
@@ -220,26 +249,60 @@ ipcMain.handle("clockIn", async () => {
   if (!token) return { error: "Not signed in" };
   try {
     const data = await clockApi("in");
+    if (!data.clockedIn) {
+      // server refused (e.g. outside the shift window) with a 200-level body
+      return { error: data.error || "Couldn't clock in — try again" };
+    }
     clockedInSince = data.since;
     startSampling();
     lastStatus = "Starting…";
     updateUI();
     return { ok: true };
-  } catch {
-    return { error: "Can't reach server — try again" };
+  } catch (e) {
+    if (e && e.userMessage) return { error: e.userMessage };
+    return { error: "Can't reach server — check your internet and try again" };
   }
 });
+
+// If a clock-out can't reach the server, the entry stays open server-side and
+// would later be auto-closed at the shift end — hours the person didn't work.
+// Keep retrying in the background until the server confirms.
+let outRetryTimer = null;
+function scheduleOutRetry() {
+  if (outRetryTimer) return;
+  outRetryTimer = setInterval(async () => {
+    try {
+      await clockApi("out");
+      clearInterval(outRetryTimer);
+      outRetryTimer = null;
+      lastStatus = "Clocked out";
+      updateUI();
+    } catch (e) {
+      if (e && e.status) {
+        // server answered (session expired / already closed) — stop retrying
+        clearInterval(outRetryTimer);
+        outRetryTimer = null;
+      }
+      // network failure: keep the timer, try again next round
+    }
+  }, 30_000);
+}
 
 ipcMain.handle("clockOut", async () => {
   stopSampling();
   await flush().catch(() => {});
+  clockedInSince = null;
   try {
     await clockApi("out");
-  } catch {
-    /* still stop locally even if offline */
+    lastStatus = "Clocked out";
+  } catch (e) {
+    if (e && e.status) {
+      lastStatus = "Clocked out";
+    } else {
+      lastStatus = "Clock-out pending — offline, will keep retrying";
+      scheduleOutRetry();
+    }
   }
-  clockedInSince = null;
-  lastStatus = "Clocked out";
   updateUI();
   return { ok: true };
 });
@@ -269,6 +332,10 @@ app.whenReady().then(() => {
     lastStatus = "Ready — clock in to start your shift";
     refreshClockStatus();
   }
+
+  // after sleep/wake the local clock state can be stale (e.g. auto-closed
+  // server-side overnight) — resync with the server
+  powerMonitor.on("resume", () => refreshClockStatus());
 
   app.on("activate", () => {
     if (win) win.show();
