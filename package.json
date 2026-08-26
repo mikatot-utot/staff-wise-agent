@@ -1,6 +1,6 @@
 {
   "name": "staff-wise-agent",
-  "version": "0.1.6",
+  "version": "0.3.0",
   "description": "Staff Wise time & activity agent",
   "main": "main.js",
   "scripts": {
@@ -22,7 +22,6 @@
     "appId": "com.staffwise.agent",
     "productName": "Staff Wise Agent",
     "npmRebuild": false,
-    "afterPack": "build/afterPack.js",
     "files": [
       "main.js",
       "preload.js",
@@ -37,7 +36,13 @@
         "dmg"
       ],
       "category": "public.app-category.productivity",
-      "identity": null
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": {
+        "teamId": "Y86VRDGR5D"
+      }
     },
     "dmg": {
       "artifactName": "StaffWiseAgent-mac.${ext}"
