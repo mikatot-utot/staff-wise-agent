@@ -6,10 +6,11 @@
     <title>Staff Wise Agent</title>
     <style>
       * { box-sizing: border-box; font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
-      body { margin: 0; padding: 24px; background: #07070a; color: #f3f4f6; }
-      h1 { font-size: 18px; margin: 0 0 4px; font-weight: 700; letter-spacing: -0.01em; }
+      body { margin: 0; padding: 20px; background: #07070a; color: #f3f4f6; }
+      h1 { font-size: 17px; margin: 0 0 2px; font-weight: 700; letter-spacing: -0.01em; display: flex; align-items: baseline; }
       h1 .mark { color: #b6f09c; }
-      .sub { font-size: 12px; color: #8a8a90; margin-bottom: 20px; }
+      h1 .ver { margin-left: auto; font-size: 10px; color: #6b6b70; font-weight: 400; }
+      .sub { font-size: 11px; color: #8a8a90; margin-bottom: 14px; }
       label { display: block; font-size: 12px; color: #8a8a90; margin: 12px 0 4px; }
       input {
         width: 100%; padding: 9px 10px; border: 1px solid #232326; border-radius: 8px;
@@ -17,24 +18,49 @@
       }
       input::placeholder { color: #5d5d63; }
       button {
-        width: 100%; margin-top: 16px; padding: 10px; border: 0; border-radius: 8px;
+        width: 100%; margin-top: 14px; padding: 10px; border: 0; border-radius: 8px;
         background: #ea580c; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
       }
       button:hover { opacity: 0.92; }
       button.secondary { background: transparent; color: #f3f4f6; border: 1px solid #232326; font-weight: 500; }
       button.secondary:hover { background: #1c1c20; opacity: 1; }
+      button.breakBtn { background: transparent; color: #fcd34d; border: 1px solid #3a3a40; font-weight: 600; }
+      button.breakBtn:hover { background: #1c1c20; opacity: 1; }
       .err { color: #f87171; font-size: 13px; margin-top: 10px; min-height: 16px; }
-      .card { background: #141416; border: 1px solid #232326; border-radius: 14px; padding: 16px; }
-      .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
-      .row { display: flex; align-items: center; font-size: 14px; margin-bottom: 8px; }
-      .muted { color: #8a8a90; font-size: 12px; }
-      .foot { color: #6b6b70; font-size: 11px; margin-top: 16px; text-align: center; }
+      .card { background: #141416; border: 1px solid #232326; border-radius: 14px; padding: 14px; }
+      .muted { color: #8a8a90; font-size: 11px; }
+      .foot { color: #6b6b70; font-size: 11px; margin-top: 14px; text-align: center; }
       .foot .mark { color: #b6f09c; font-weight: 600; }
       .hide { display: none; }
+
+      /* big state box */
+      .state { border-radius: 12px; padding: 12px; text-align: center; border: 1px solid #232326; }
+      .state .label { font-size: 12px; font-weight: 800; letter-spacing: 0.08em; }
+      .state .timer { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0 2px; }
+      .state .line { font-size: 11px; color: #8a8a90; }
+      .state.tracking { background: #0d1f14; border-color: #1c4a2e; }
+      .state.tracking .label { color: #4ade80; }
+      .state.break { background: #271d07; border-color: #5c4716; }
+      .state.break .label { color: #fcd34d; }
+      .state.off { background: #141416; }
+      .state.off .label { color: #9aa0aa; }
+      .state.down { background: #2d0f0f; border: 2px solid #b91c1c; }
+      .state.down .label { color: #f87171; }
+      .state.down .line { color: #d9b0b0; }
+
+      .shiftCard { background: #141416; border: 1px solid #232326; border-radius: 10px; padding: 9px 12px; margin-top: 10px; }
+      .shiftCard .k { color: #8a8a90; font-size: 9.5px; letter-spacing: 0.06em; }
+      .shiftCard .v { font-size: 13px; margin-top: 2px; }
+      .btnRow { display: flex; gap: 8px; }
+      .btnRow button { flex: 1; }
+      .permCard { background: #1e1707; border: 1px solid #5c4716; border-radius: 10px; padding: 10px 12px; margin-top: 10px; font-size: 11.5px; color: #e7d9b0; }
+      .permCard button { margin-top: 8px; padding: 7px; font-size: 12px; background: #5c4716; }
+      .statusLine { font-size: 12px; margin-top: 10px; min-height: 15px; }
+      .footNote { color: #8a8a90; font-size: 10.5px; margin-top: 10px; text-align: center; }
     </style>
   </head>
   <body>
-    <h1><span class="mark">◣</span> Staff Wise Agent</h1>
+    <h1><span class="mark">◣</span>&nbsp;Staff Wise Agent <span class="ver" id="ver"></span></h1>
     <div class="sub">Tracks your work time and activity while you&rsquo;re on shift.</div>
 
     <div id="loginView">
@@ -50,15 +76,32 @@
     </div>
 
     <div id="trackingView" class="hide">
-      <div class="card">
-        <div class="row"><span class="dot" id="dot"></span><strong id="who"></strong></div>
-        <div class="row" id="statusLine"></div>
-        <div class="muted" id="pending"></div>
-        <div class="muted" id="server" style="margin-top:6px"></div>
-        <button id="trackBtn" style="margin-top:16px">Clock in</button>
-        <button class="secondary" id="logoutBtn" style="margin-top:8px">Sign out</button>
-        <button class="secondary" id="quitBtn" style="margin-top:8px">Quit</button>
+      <div class="state off" id="stateBox">
+        <div class="label" id="stateLabel">CLOCKED OUT</div>
+        <div class="timer" id="timer">—</div>
+        <div class="line" id="stateLine"></div>
       </div>
+
+      <div class="shiftCard hide" id="shiftCard">
+        <div class="k">TODAY'S SHIFT</div>
+        <div class="v" id="shiftLine"></div>
+      </div>
+
+      <div class="permCard hide" id="permCard">
+        To also record which <strong>apps and sites</strong> are used, macOS needs
+        Screen Recording permission for Staff Wise Agent (one time, ~30 seconds).
+        Time and activity already track without it.
+        <button id="permBtn">Open System Settings</button>
+      </div>
+
+      <div class="btnRow" style="margin-top:14px">
+        <button class="breakBtn hide" id="breakBtn">☕ Break</button>
+        <button id="trackBtn">Clock in</button>
+      </div>
+      <div class="statusLine" id="statusLine"></div>
+      <button class="secondary" id="logoutBtn" style="margin-top:4px">Sign out</button>
+      <button class="secondary" id="quitBtn" style="margin-top:8px">Quit</button>
+      <div class="footNote" id="footNote"></div>
     </div>
 
     <div class="foot">Powered by <span class="mark">mikatot</span></div>

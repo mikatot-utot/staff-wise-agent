@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld("biukin", {
   logout: () => ipcRenderer.invoke("logout"),
   clockIn: () => ipcRenderer.invoke("clockIn"),
   clockOut: () => ipcRenderer.invoke("clockOut"),
+  breakToggle: () => ipcRenderer.invoke("breakToggle"),
+  openScreenSettings: () => ipcRenderer.invoke("openScreenSettings"),
   quitApp: () => ipcRenderer.invoke("quitApp"),
   onStatus: (cb) => ipcRenderer.on("status", (_e, data) => cb(data)),
 });

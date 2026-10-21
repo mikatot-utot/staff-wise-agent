@@ -1,6 +1,6 @@
 {
   "name": "staff-wise-agent",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Staff Wise time & activity agent",
   "main": "main.js",
   "scripts": {
@@ -16,7 +16,8 @@
     "electron-builder": "^25.1.8"
   },
   "dependencies": {
-    "active-win": "^8.2.1"
+    "active-win": "^8.2.1",
+    "electron-updater": "^6.8.9"
   },
   "build": {
     "appId": "com.staffwise.agent",
@@ -33,7 +34,8 @@
     ],
     "mac": {
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ],
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
@@ -57,6 +59,11 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
       "artifactName": "StaffWiseAgent-setup.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "mikatot-utot",
+      "repo": "staff-wise-agent"
     }
   }
 }

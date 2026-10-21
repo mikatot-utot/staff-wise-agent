@@ -3,6 +3,9 @@ const {
   BrowserWindow,
   ipcMain,
   powerMonitor,
+  Notification,
+  shell,
+  systemPreferences,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -13,18 +16,34 @@ const API_BASE = process.env.BIUKIN_API || "https://staff-wise-theta.vercel.app"
 
 const SAMPLE_INTERVAL_MS = 60_000; // take a reading every 60s
 const IDLE_THRESHOLD_S = 540; // idle if no keyboard/mouse for 9 min
-const FLUSH_EVERY = 1; // upload after every sample (~1 min) so the dashboard is near-live
+const STATUS_POLL_MS = 15 * 60_000; // refresh clock/shift state from the server
+const FLUSH_CHUNK = 200; // replay uploads go out in chunks this size
+const DISCONNECTED_AFTER = 3; // unsent readings before the loud red state
 
 let win = null;
 let token = null;
 let employee = null;
 let buffer = [];
 let sampleTimer = null;
+let statusTimer = null;
 let quitting = false;
 let lastStatus = "Signed out";
 let clockedInSince = null;
+let onBreak = false;
+let breakSince = null;
+let todayShift = null; // { client, startsAt, endsAt }
+let flushFailing = false; // last upload attempt failed (network)
+let outageNotified = false;
 
 const sessionFile = () => path.join(app.getPath("userData"), "session.json");
+// Pending readings are stored PER PERSON — if a different CSR signs in on the
+// same laptop, the previous person's unsent work must never upload under the
+// new account. Each person's file is picked up again when THEY sign back in.
+const pendingFile = () =>
+  path.join(
+    app.getPath("userData"),
+    `pending-readings-${employee && employee.id ? employee.id : "anon"}.json`,
+  );
 
 function saveSession() {
   try {
@@ -44,8 +63,35 @@ function clearSession() {
   } catch {}
 }
 
+/**
+ * Readings are written to disk the moment they're taken and only removed once
+ * the server confirms them — a crash, restart, or a night of bad internet can
+ * no longer lose tracked work.
+ */
+function savePending() {
+  try {
+    fs.writeFileSync(pendingFile(), JSON.stringify(buffer));
+  } catch {}
+}
+function loadPending() {
+  try {
+    const rows = JSON.parse(fs.readFileSync(pendingFile(), "utf8"));
+    if (Array.isArray(rows)) buffer = rows.filter((r) => r && r.ts);
+  } catch {}
+}
+
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+/** macOS screen-recording permission state ("granted" | "denied" | ...). */
+function screenPerm() {
+  if (process.platform !== "darwin") return "granted";
+  try {
+    return systemPreferences.getMediaAccessStatus("screen");
+  } catch {
+    return "granted";
+  }
 }
 
 function updateUI() {
@@ -54,10 +100,28 @@ function updateUI() {
     employee,
     clockedIn: !!sampleTimer,
     since: clockedInSince,
+    onBreak,
+    breakSince,
+    todayShift,
     status: lastStatus,
     pending: buffer.length,
+    disconnected: flushFailing && buffer.length >= DISCONNECTED_AFTER,
+    screenPerm: screenPerm(),
+    version: app.getVersion(),
     apiBase: API_BASE,
   });
+}
+
+/** One native heads-up per outage — tracking silently dying was the old bug. */
+function notifyOutage() {
+  if (outageNotified) return;
+  outageNotified = true;
+  try {
+    new Notification({
+      title: "Staff Wise Agent — not reaching the server",
+      body: "Your work is still being recorded on this laptop and will upload by itself when internet returns.",
+    }).show();
+  } catch {}
 }
 
 /**
@@ -107,39 +171,70 @@ async function takeSample() {
   // video (no input) still shows WHERE the person is, not just "idle".
   const { app_name, domain } = await getActiveWindow();
   buffer.push({ ts: new Date().toISOString(), active, app_name, domain });
+  savePending(); // on disk before we even try the network
   const place = domain ? " · " + domain : app_name ? " · " + app_name : "";
-  lastStatus = active
-    ? `Active${place || " (grant permissions for app/site names)"}`
-    : `Idle${place}`;
-  if (buffer.length >= FLUSH_EVERY) await flush();
+  if (onBreak) lastStatus = "On break";
+  else lastStatus = active ? `Active${place}` : `Idle${place}`;
+  await flush();
   updateUI();
 }
 
+// Only one flush at a time: a second run while the first awaits the network
+// could confirm-and-drop readings the server never saw.
+let flushing = false;
+
 async function flush() {
-  if (!token || buffer.length === 0) return;
-  const batch = buffer.slice();
+  if (!token || buffer.length === 0 || flushing) return;
+  flushing = true;
   try {
-    const res = await fetch(API_BASE + "/api/agent/activity", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + token,
-      },
-      body: JSON.stringify({ samples: batch }),
-    });
-    if (res.ok) {
-      buffer.splice(0, batch.length); // drop only what we sent
-    } else if (res.status === 401) {
-      lastStatus = "Session expired — sign in again";
-      stopSampling();
-      token = null;
-      clearSession();
-      // tracking just silently stopped — make sure the person can see it
-      if (win) win.show();
+    await flushInner();
+  } finally {
+    flushing = false;
+  }
+}
+
+async function flushInner() {
+  // replay in order, oldest first, in chunks — one bad chunk stops the run
+  // and everything unsent stays on disk for the next try
+  while (token && buffer.length > 0) {
+    const batch = buffer.slice(0, FLUSH_CHUNK);
+    try {
+      const res = await fetch(API_BASE + "/api/agent/activity", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({ samples: batch }),
+        // a HUNG connection must fail fast, or the red warning never shows
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (res.ok) {
+        buffer.splice(0, batch.length); // drop only what the server confirmed
+        savePending();
+        if (flushFailing) {
+          flushFailing = false;
+          outageNotified = false;
+          lastStatus = "Back online — readings caught up";
+        }
+      } else if (res.status === 401) {
+        lastStatus = "Session expired — sign in again";
+        stopSampling();
+        token = null;
+        clearSession();
+        // tracking just silently stopped — make sure the person can see it
+        if (win) win.show();
+        return;
+      } else {
+        // server answered but refused (e.g. 400) — don't loop on a bad batch
+        return;
+      }
+    } catch {
+      // offline — keep everything buffered (and on disk), retry next minute
+      flushFailing = true;
+      if (buffer.length >= DISCONNECTED_AFTER) notifyOutage();
+      return;
     }
-  } catch {
-    // offline — keep buffering, retry next flush
-    lastStatus = "Offline — will retry";
   }
 }
 
@@ -156,7 +251,7 @@ function stopSampling() {
 function createWindow() {
   win = new BrowserWindow({
     width: 380,
-    height: 460,
+    height: 560,
     resizable: false,
     title: "Staff Wise Agent",
     webPreferences: { preload: path.join(__dirname, "preload.js") },
@@ -183,9 +278,12 @@ ipcMain.handle("login", async (_e, { email, password }) => {
     token = data.token;
     employee = data.employee;
     saveSession();
+    buffer = [];
+    loadPending(); // THIS person's rescued readings (per-person file) go out now
     lastStatus = "Ready — clock in to start your shift";
     updateUI();
     refreshClockStatus(); // resume if already clocked in (e.g. from the web)
+    flush().catch(() => {});
     return { ok: true };
   } catch {
     return { error: "Can't reach server at " + API_BASE };
@@ -236,9 +334,16 @@ async function refreshClockStatus() {
   try {
     const data = await clockApi("status");
     clockedInSince = data.since;
+    onBreak = !!data.onBreak;
+    breakSince = data.breakSince ?? null;
+    todayShift = data.todayShift ?? null;
     if (data.clockedIn && !sampleTimer) startSampling();
     if (!data.clockedIn && sampleTimer) stopSampling();
-    if (!data.clockedIn) lastStatus = "Ready — clock in to start your shift";
+    if (!data.clockedIn) {
+      onBreak = false;
+      breakSince = null;
+      lastStatus = "Ready — clock in to start your shift";
+    }
     updateUI();
   } catch {
     /* offline — leave as-is */
@@ -254,6 +359,7 @@ ipcMain.handle("clockIn", async () => {
       return { error: data.error || "Couldn't clock in — try again" };
     }
     clockedInSince = data.since;
+    todayShift = data.todayShift ?? todayShift;
     startSampling();
     lastStatus = "Starting…";
     updateUI();
@@ -292,6 +398,8 @@ ipcMain.handle("clockOut", async () => {
   stopSampling();
   await flush().catch(() => {});
   clockedInSince = null;
+  onBreak = false;
+  breakSince = null;
   try {
     await clockApi("out");
     lastStatus = "Clocked out";
@@ -307,13 +415,51 @@ ipcMain.handle("clockOut", async () => {
   return { ok: true };
 });
 
+/** Break toggle — a recorded span on the server; no countdown by design. */
+ipcMain.handle("breakToggle", async () => {
+  if (!token) return { error: "Not signed in" };
+  const action = onBreak ? "end" : "start";
+  try {
+    const res = await fetch(API_BASE + "/api/agent/break", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token,
+      },
+      body: JSON.stringify({ action }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { error: data.error || "Break failed — try again" };
+    onBreak = !!data.onBreak;
+    breakSince = data.breakSince ?? null;
+    lastStatus = onBreak ? "On break" : "Back from break";
+    updateUI();
+    return { ok: true };
+  } catch {
+    return { error: "Can't reach server — check your internet and try again" };
+  }
+});
+
+ipcMain.handle("openScreenSettings", async () => {
+  if (process.platform === "darwin") {
+    await shell.openExternal(
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+    );
+  }
+  return { ok: true };
+});
+
 ipcMain.handle("logout", async () => {
   stopSampling();
   await flush().catch(() => {});
+  savePending(); // unsent readings stay in THIS person's file for next sign-in
+  buffer = [];
   token = null;
   employee = null;
-  buffer = [];
   lastStatus = "Signed out";
+  onBreak = false;
+  breakSince = null;
+  todayShift = null;
   clearSession();
   updateUI();
   return { ok: true };
@@ -325,22 +471,54 @@ ipcMain.handle("quitApp", async () => {
   app.quit();
 });
 
+/** Self-update: pulls new signed builds from GitHub releases — no reinstalls. */
+function setupAutoUpdate() {
+  if (!app.isPackaged) return;
+  try {
+    const { autoUpdater } = require("electron-updater");
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    const check = () => autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+    check();
+    setInterval(check, 6 * 60 * 60_000);
+  } catch {}
+}
+
 app.whenReady().then(() => {
   loadSession();
+  loadPending();
   createWindow();
   if (token) {
     lastStatus = "Ready — clock in to start your shift";
     refreshClockStatus();
+    flush().catch(() => {}); // readings rescued from disk go out first
   }
+
+  // start with the laptop so nobody forgets to open the tracker
+  if (app.isPackaged) {
+    try {
+      app.setLoginItemSettings({ openAtLogin: true });
+    } catch {}
+  }
+
+  setupAutoUpdate();
 
   // after sleep/wake the local clock state can be stale (e.g. auto-closed
   // server-side overnight) — resync with the server
   powerMonitor.on("resume", () => refreshClockStatus());
 
+  // periodic resync keeps the shift card and break state honest even if the
+  // person also uses the website
+  statusTimer = setInterval(() => refreshClockStatus(), STATUS_POLL_MS);
+
   app.on("activate", () => {
     if (win) win.show();
     else createWindow();
   });
+});
+
+app.on("will-quit", () => {
+  if (statusTimer) clearInterval(statusTimer);
 });
 
 // keep running in background when the window is closed
