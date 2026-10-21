@@ -70,7 +70,11 @@ function clearSession() {
  */
 function savePending() {
   try {
-    fs.writeFileSync(pendingFile(), JSON.stringify(buffer));
+    // write-then-rename: a crash or power cut mid-write can only ever lose the
+    // temp file, never the real backlog this feature exists to protect
+    const file = pendingFile();
+    fs.writeFileSync(file + ".tmp", JSON.stringify(buffer));
+    fs.renameSync(file + ".tmp", file);
   } catch {}
 }
 function loadPending() {
@@ -225,8 +229,16 @@ async function flushInner() {
         // tracking just silently stopped — make sure the person can see it
         if (win) win.show();
         return;
+      } else if (res.status >= 400 && res.status < 500) {
+        // the server LOOKED at this batch and rejected it — retrying the same
+        // data forever would block everything queued behind it
+        buffer.splice(0, batch.length);
+        savePending();
       } else {
-        // server answered but refused (e.g. 400) — don't loop on a bad batch
+        // 5xx: the server is in trouble — same loud path as no internet, so
+        // tracking can never die silently again
+        flushFailing = true;
+        if (buffer.length >= DISCONNECTED_AFTER) notifyOutage();
         return;
       }
     } catch {
