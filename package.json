@@ -1,6 +1,6 @@
 {
   "name": "staff-wise-agent",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Staff Wise time & activity agent",
   "main": "main.js",
   "scripts": {
@@ -58,7 +58,8 @@
       "oneClick": true,
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
-      "artifactName": "StaffWiseAgent-setup.${ext}"
+      "artifactName": "StaffWiseAgent-setup.${ext}",
+      "include": "build/installer.nsh"
     },
     "publish": {
       "provider": "github",
